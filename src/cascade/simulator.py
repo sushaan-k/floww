@@ -204,6 +204,156 @@ class Simulator:
 
         return self._aggregate(runs, active_strategy)
 
+    def run_vectorized(
+        self,
+        strategy: ResilienceStrategy | None = None,
+    ) -> SimulationResult:
+        """Execute simulations using vectorized numpy operations.
+
+        For the naive strategy (no retries), this replaces the per-trial
+        Python loop with batch random draws across all trials and steps
+        simultaneously. Falls back to the scalar ``run()`` for strategies
+        that require sequential retry / rollback logic.
+
+        Args:
+            strategy: Optional strategy override for this run.
+
+        Returns:
+            SimulationResult with aggregated metrics.
+        """
+        active_strategy = strategy or self.strategy
+
+        if active_strategy.strategy_type != StrategyType.NAIVE:
+            return self.run(strategy=active_strategy)
+
+        return self._run_vectorized_naive(active_strategy)
+
+    def _run_vectorized_naive(
+        self,
+        strategy: ResilienceStrategy,
+    ) -> SimulationResult:
+        """Vectorized implementation for the naive (fail-fast) strategy.
+
+        Draws all random failure checks in bulk using numpy arrays,
+        then determines per-trial outcomes without Python-level loops
+        over individual trials.
+
+        Args:
+            strategy: The naive strategy (used for display name only).
+
+        Returns:
+            SimulationResult with aggregated metrics.
+        """
+        rng = np.random.default_rng(self.seed)
+        n = self.n_simulations
+        steps = self.pipeline.topological_order()
+        n_steps = len(steps)
+        cfg = self.failure_config
+
+        # Pre-draw uniform random numbers for each (trial, step, check).
+        # We need draws for: tool_failure, refusal, hallucination, latency_spike
+        tool_draws = rng.random((n, n_steps))
+        refusal_draws = rng.random((n, n_steps))
+        hallucination_draws = rng.random((n, n_steps))
+        spike_draws = rng.random((n, n_steps))
+
+        # Per-step properties
+        step_has_tools = np.array([len(s.tools) > 0 for s in steps])
+        step_costs = np.array([s.cost_usd() for s in steps])
+        step_latencies = np.array([s.latency_s() for s in steps])
+        step_input_tokens = np.array([s.input_tokens for s in steps])
+        step_output_tokens = np.array([s.output_tokens for s in steps])
+
+        # Check context overflow (deterministic per step)
+        cumulative_tokens = np.cumsum(step_input_tokens + step_output_tokens)
+        overflow_mask = cumulative_tokens >= cfg.context_overflow_at
+
+        # Failure masks: shape (n, n_steps), True = failure at that step
+        tool_fail = (tool_draws < cfg.tool_failure_rate) & step_has_tools
+        refusal_fail = refusal_draws < cfg.refusal_rate
+        hallucination_fail = hallucination_draws < cfg.hallucination_rate
+
+        # Any fatal failure at a step (overflow, tool, refusal, hallucination)
+        # Overflow applies uniformly to all trials at the same step.
+        step_failed = tool_fail | refusal_fail | hallucination_fail | overflow_mask
+
+        # Latency spikes (non-fatal)
+        spike_hit = spike_draws < cfg.latency_spike_rate
+
+        # For naive strategy (no retries), the pipeline fails at the FIRST
+        # failed step. Compute a per-trial "first failure" index.
+        # If no step fails, the trial succeeds.
+        # Use argmax on the failure mask -- but argmax returns 0 if no True,
+        # so we need to distinguish "no failure" from "failure at step 0".
+        any_failure = step_failed.any(axis=1)  # shape (n,)
+        # For trials with at least one failure, find the first failure index.
+        # Replace non-failing steps with n_steps so argmin picks the real one.
+        fail_indices = np.where(step_failed, np.arange(n_steps), n_steps)
+        first_fail_step = fail_indices.min(axis=1)  # shape (n,)
+
+        trial_success = ~any_failure  # shape (n,)
+        success_count = int(trial_success.sum())
+
+        # Cost: sum step costs up to (and including) the first failed step,
+        # or all steps if successful.
+        steps_completed = np.where(
+            any_failure, first_fail_step + 1, n_steps
+        )  # shape (n,)
+        # Build a mask of which steps were executed per trial
+        step_indices = np.arange(n_steps)  # shape (n_steps,)
+        executed_mask = step_indices < steps_completed[:, np.newaxis]  # (n, n_steps)
+        trial_costs = (executed_mask * step_costs).sum(axis=1)  # shape (n,)
+
+        # Latency: base latency * spike multiplier where applicable
+        effective_latency = np.where(
+            spike_hit, step_latencies * cfg.spike_multiplier, step_latencies
+        )
+        trial_latencies = (executed_mask * effective_latency).sum(axis=1)
+
+        costs = trial_costs.tolist()
+        latencies = trial_latencies.tolist()
+
+        # Failure counts
+        failure_counts: dict[str, int] = {}
+        # Count only failures at the first-failure step for failed trials
+        failed_mask = any_failure
+        if failed_mask.any():
+            first_fail = first_fail_step[failed_mask]
+            trial_idx = np.where(failed_mask)[0]
+            for t, s in zip(trial_idx, first_fail, strict=True):
+                if overflow_mask[s]:
+                    key = "context_overflow"
+                elif tool_fail[t, s]:
+                    key = "tool_failure"
+                elif refusal_fail[t, s]:
+                    key = "refusal"
+                else:
+                    key = "hallucination"
+                failure_counts[key] = failure_counts.get(key, 0) + 1
+
+        # Spike events counted separately (non-fatal)
+        total_spikes = int((executed_mask & spike_hit).sum())
+        if total_spikes > 0:
+            failure_counts["latency_spike"] = total_spikes
+
+        return SimulationResult(
+            n_simulations=n,
+            success_count=success_count,
+            success_rate=success_count / n if n > 0 else 0.0,
+            mean_cost_usd=float(np.mean(trial_costs)),
+            mean_latency_s=float(np.mean(trial_latencies)),
+            failure_counts=failure_counts,
+            mean_steps_to_failure=(
+                float(np.mean(first_fail_step[failed_mask]))
+                if failed_mask.any()
+                else float(n_steps)
+            ),
+            recovery_rate=0.0,  # Naive has no recovery
+            costs=costs,
+            latencies=latencies,
+            strategy_name=strategy.display_name,
+        )
+
     def compare_strategies(
         self,
         strategies: list[ResilienceStrategy],
