@@ -350,9 +350,7 @@ class Simulator:
         Returns:
             StepResult for this step.
         """
-        projected_tokens = (
-            cumulative_tokens + step.input_tokens + step.output_tokens
-        )
+        projected_tokens = cumulative_tokens + step.input_tokens + step.output_tokens
 
         upstream_corrupted = any(injector.is_corrupted(dep) for dep in step.depends_on)
         corrupted_output = upstream_corrupted
@@ -407,7 +405,11 @@ class Simulator:
                 and step_idx in exec_strategy.human_at_steps
             )
             current_model = step.model
-            if st == StrategyType.FALLBACK and attempt > 1 and exec_strategy.fallback_models:
+            if (
+                st == StrategyType.FALLBACK
+                and attempt > 1
+                and exec_strategy.fallback_models
+            ):
                 fb_idx = min(attempt - 2, len(exec_strategy.fallback_models) - 1)
                 current_model = exec_strategy.fallback_models[fb_idx]
 
@@ -559,7 +561,9 @@ class Simulator:
                 step_name=step.name,
                 model=step.model,
                 tools=step.tools,
-                cumulative_tokens=cumulative_tokens + step.input_tokens + step.output_tokens,
+                cumulative_tokens=cumulative_tokens
+                + step.input_tokens
+                + step.output_tokens,
                 upstream_corrupted=upstream_corrupted,
             )
             cost = step.cost_usd()

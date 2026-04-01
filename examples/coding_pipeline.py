@@ -101,20 +101,24 @@ def main() -> None:
     sim = Simulator(pipeline, failures, n_simulations=5000, seed=42)
     result = sim.run(strategy=naive())
     print(f"Naive success rate: {result.success_rate:.1%}")
-    print(f"  (That means {result.n_simulations - result.success_count:,} "
-          f"failures out of {result.n_simulations:,} runs)")
+    print(
+        f"  (That means {result.n_simulations - result.success_count:,} "
+        f"failures out of {result.n_simulations:,} runs)"
+    )
     print()
 
     # Compare strategies
     print("Strategy Comparison")
     print("=" * 60)
     comp = Comparator(pipeline, failures, n_simulations=5000, seed=42)
-    comparison = comp.compare([
-        naive(),
-        retry(max_attempts=3),
-        checkpoint(interval=3),
-        adaptive(escalation_threshold=2, escalation_strategy="retry"),
-    ])
+    comparison = comp.compare(
+        [
+            naive(),
+            retry(max_attempts=3),
+            checkpoint(interval=3),
+            adaptive(escalation_threshold=2, escalation_strategy="retry"),
+        ]
+    )
     comparison.print_table()
     print()
     comparison.recommend()

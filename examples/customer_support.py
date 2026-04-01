@@ -85,13 +85,15 @@ def main() -> None:
 
     # Compare strategies including human-in-the-loop
     comp = Comparator(pipeline, failures, n_simulations=5000, seed=42)
-    comparison = comp.compare([
-        naive(),
-        retry(max_attempts=3),
-        checkpoint(interval=2),
-        human_in_loop(at_steps=[3, 4], accuracy=0.95),
-        adaptive(escalation_threshold=2, escalation_strategy="retry"),
-    ])
+    comparison = comp.compare(
+        [
+            naive(),
+            retry(max_attempts=3),
+            checkpoint(interval=2),
+            human_in_loop(at_steps=[3, 4], accuracy=0.95),
+            adaptive(escalation_threshold=2, escalation_strategy="retry"),
+        ]
+    )
 
     comparison.print_table()
     print()

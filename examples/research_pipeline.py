@@ -92,14 +92,16 @@ def main() -> None:
     print("Strategy Comparison")
     print("=" * 60)
     comp = Comparator(pipeline, failures, n_simulations=10_000, seed=42)
-    comparison = comp.compare([
-        naive(),
-        retry(max_attempts=3),
-        fallback(models=["sonnet", "haiku"]),
-        parallel(n=3, vote="majority"),
-        checkpoint(interval=2),
-        adaptive(escalation_threshold=2, escalation_strategy="parallel"),
-    ])
+    comparison = comp.compare(
+        [
+            naive(),
+            retry(max_attempts=3),
+            fallback(models=["sonnet", "haiku"]),
+            parallel(n=3, vote="majority"),
+            checkpoint(interval=2),
+            adaptive(escalation_threshold=2, escalation_strategy="parallel"),
+        ]
+    )
 
     comparison.print_table()
     print()
