@@ -226,6 +226,16 @@ See the [`examples/`](examples/) directory:
 - **`coding_pipeline.py`** -- 10-step coding agent demonstrating the compounding problem
 - **`customer_support.py`** -- Diamond-shaped pipeline with parallel research paths
 
+## Demo
+
+Run the offline walkthrough with:
+
+```bash
+uv run python examples/demo.py
+```
+
+For larger reliability studies and strategy comparisons, see `examples/`.
+
 ## Development
 
 ```bash
