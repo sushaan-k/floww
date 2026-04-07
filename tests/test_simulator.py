@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import csv
+import tempfile
+from pathlib import Path
+
 import numpy as np
+import pytest
 
 from cascade.failures import FailureConfig, FailureEvent, FailureInjector, FailureType
 from cascade.pipeline import Pipeline, Step
@@ -1006,3 +1011,54 @@ class TestMonteCarloStatisticalProperties:
         )
         result = sim.run()
         assert 0.0 <= result.recovery_rate <= 1.0
+
+
+class TestSimulationResultToCSV:
+    """Tests for SimulationResult.to_csv export."""
+
+    def test_csv_has_correct_header_and_row_count(
+        self, simple_pipeline, zero_failures
+    ):
+        sim = Simulator(simple_pipeline, zero_failures, n_simulations=50, seed=42)
+        result = sim.run()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "results.csv"
+            returned = result.to_csv(csv_path)
+            assert returned == csv_path
+            assert csv_path.exists()
+
+            with open(csv_path) as fh:
+                reader = csv.reader(fh)
+                header = next(reader)
+                assert header == ["trial", "success", "cost_usd", "latency_s"]
+                rows = list(reader)
+                assert len(rows) == 50
+
+    def test_csv_values_match_result(self, simple_pipeline, default_failures):
+        sim = Simulator(simple_pipeline, default_failures, n_simulations=20, seed=99)
+        result = sim.run()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "out.csv"
+            result.to_csv(csv_path)
+
+            with open(csv_path) as fh:
+                reader = csv.DictReader(fh)
+                rows = list(reader)
+
+            assert len(rows) == 20
+            # Verify costs round-trip
+            for i, row in enumerate(rows):
+                assert float(row["cost_usd"]) == pytest.approx(
+                    result.costs[i], abs=1e-5
+                )
+
+    def test_csv_creates_parent_directories(self, simple_pipeline, zero_failures):
+        sim = Simulator(simple_pipeline, zero_failures, n_simulations=5, seed=42)
+        result = sim.run()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "nested" / "dir" / "results.csv"
+            result.to_csv(csv_path)
+            assert csv_path.exists()

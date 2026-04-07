@@ -7,8 +7,10 @@ are then aggregated into SimulationResult.
 
 from __future__ import annotations
 
+import csv
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 from pydantic import BaseModel, Field
@@ -123,6 +125,32 @@ class SimulationResult(BaseModel):
     costs: list[float] = Field(default_factory=list)
     latencies: list[float] = Field(default_factory=list)
     strategy_name: str = "Naive"
+
+    def to_csv(self, path: str | Path) -> Path:
+        """Export trial-level data to a CSV file.
+
+        Each row represents one simulation trial with its cost, latency,
+        and whether it succeeded.
+
+        Args:
+            path: Destination file path for the CSV output.
+
+        Returns:
+            The resolved Path that was written.
+        """
+        dest = Path(path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(dest, "w", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["trial", "success", "cost_usd", "latency_s"])
+            for idx in range(self.n_simulations):
+                succeeded = 1 if idx < self.success_count else 0
+                cost = self.costs[idx] if idx < len(self.costs) else 0.0
+                latency = self.latencies[idx] if idx < len(self.latencies) else 0.0
+                writer.writerow([idx, succeeded, f"{cost:.6f}", f"{latency:.4f}"])
+
+        return dest
 
 
 class Simulator:
