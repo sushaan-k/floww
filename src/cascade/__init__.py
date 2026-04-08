@@ -21,6 +21,7 @@ Example::
 """
 
 from cascade.comparator import Comparator, StrategyComparison
+from cascade.cost_model import CostModel, TokenPricing
 from cascade.failures import (
     FailureConfig,
     FailureEvent,
@@ -62,6 +63,8 @@ __all__ = [
     "Comparator",
     # Stats
     "ConfidenceInterval",
+    # Cost model
+    "CostModel",
     "DistributionSummary",
     # Failures
     "FailureConfig",
@@ -83,6 +86,7 @@ __all__ = [
     "StepResult",
     "StrategyComparison",
     "StrategyType",
+    "TokenPricing",
     # Version
     "__version__",
     "build_report",
