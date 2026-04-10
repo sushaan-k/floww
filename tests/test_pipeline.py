@@ -168,3 +168,16 @@ class TestPipeline:
         )
         downstream = p.downstream_of("a")
         assert downstream == ["b", "c", "d"]
+
+    def test_zero_steps_rejected(self):
+        """A pipeline with zero steps should raise a clear error."""
+        with pytest.raises(ValueError, match="at least one step"):
+            Pipeline(steps=[])
+
+    def test_zero_steps_error_message(self):
+        """Verify the error message text for empty pipelines."""
+        try:
+            Pipeline(steps=[])
+            assert False, "Should have raised"  # noqa: B011
+        except ValueError as exc:
+            assert "at least one step" in str(exc)

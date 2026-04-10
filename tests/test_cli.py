@@ -10,6 +10,7 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from cascade.cli import (
@@ -53,13 +54,13 @@ class TestLoadPipelineFromJson:
             pipeline = _load_pipeline_from_json(path)
             assert pipeline.name == "my_pipe"
 
-    def test_empty_steps(self):
+    def test_empty_steps_raises(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             data = {"name": "empty", "steps": []}
             path = Path(tmpdir) / "empty.json"
             path.write_text(json.dumps(data))
-            pipeline = _load_pipeline_from_json(path)
-            assert len(pipeline.steps) == 0
+            with pytest.raises(Exception, match="at least one step"):
+                _load_pipeline_from_json(path)
 
     def test_description_preserved(self):
         with tempfile.TemporaryDirectory() as tmpdir:
