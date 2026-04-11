@@ -79,9 +79,13 @@ class StrategyComparison(BaseModel):
             return text
 
     def _plain_table(self) -> str:
-        """Generate a plain-text table without rich."""
+        """Generate a plain-text table without rich.
+
+        Includes 95% Wilson score confidence intervals for success rate
+        so readers can judge statistical significance.
+        """
         header = (
-            f"{'Strategy':<25} {'Success':>10} {'Avg Cost':>10} "
+            f"{'Strategy':<25} {'Success (95% CI)':>25} {'Avg Cost':>10} "
             f"{'Avg Time':>10} {'Failures':>10}"
         )
         sep = "-" * len(header)
@@ -92,9 +96,13 @@ class StrategyComparison(BaseModel):
             sep,
         ]
         for r in self.results:
+            ci = proportion_ci(r.success_count, r.n_simulations)
             total_failures = r.n_simulations - r.success_count
+            ci_str = (
+                f"{r.success_rate:.1%} [{ci.lower:.1%}-{ci.upper:.1%}]"
+            )
             lines.append(
-                f"{r.strategy_name:<25} {r.success_rate:>9.1%} "
+                f"{r.strategy_name:<25} {ci_str:>25} "
                 f"{'$' + f'{r.mean_cost_usd:.4f}':>10} "
                 f"{r.mean_latency_s:>9.1f}s "
                 f"{total_failures:>10,}"

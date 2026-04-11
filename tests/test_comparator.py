@@ -87,7 +87,16 @@ class TestStrategyComparison:
         comparison = comp.compare([naive()])
         text = comparison._plain_table()
         assert "Strategy" in text
-        assert "Success" in text
+        assert "Success (95% CI)" in text
+
+    def test_plain_table_has_ci_brackets(self, simple_pipeline, default_failures):
+        """The plain table should show Wilson score intervals in brackets."""
+        comp = Comparator(simple_pipeline, default_failures, n_simulations=50, seed=42)
+        comparison = comp.compare([naive(), retry(max_attempts=3)])
+        text = comparison._plain_table()
+        # Each strategy row should contain bracketed CI like "[70.0%-85.0%]"
+        assert "[" in text
+        assert "]" in text
 
     def test_recommend_cheapest_high_reliability(self):
         """When multiple strategies exceed 95%, pick the cheapest."""
@@ -202,7 +211,7 @@ class TestStrategyComparison:
         assert "Cheapest" in rec
 
     def test_plain_table_multiple_strategies(self):
-        """Plain table with multiple strategies shows all names."""
+        """Plain table with multiple strategies shows all names and CIs."""
         results = [
             SimulationResult(
                 n_simulations=50,
@@ -233,6 +242,9 @@ class TestStrategyComparison:
         assert "Beta" in text
         assert "Avg Cost" in text
         assert "Failures" in text
+        # Should contain confidence interval notation
+        assert "95% CI" in text
+        assert "[" in text
 
 
 class TestStrategyComparisonPlots:
