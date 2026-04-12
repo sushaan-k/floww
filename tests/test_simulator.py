@@ -1062,3 +1062,94 @@ class TestSimulationResultToCSV:
             csv_path = Path(tmpdir) / "nested" / "dir" / "results.csv"
             result.to_csv(csv_path)
             assert csv_path.exists()
+
+
+class TestRunVectorized:
+    """Tests for the vectorized Monte Carlo implementation."""
+
+    def test_vectorized_zero_failures_all_succeed(
+        self, simple_pipeline, zero_failures
+    ):
+        sim = Simulator(simple_pipeline, zero_failures, n_simulations=200, seed=42)
+        result = sim.run_vectorized()
+        assert result.success_rate == 1.0
+        assert result.n_simulations == 200
+        assert len(result.costs) == 200
+
+    def test_vectorized_matches_scalar_success_rate(
+        self, simple_pipeline, default_failures
+    ):
+        """Vectorized and scalar runs with the same seed should produce
+        similar success rates (within statistical tolerance)."""
+        n = 2000
+        sim_scalar = Simulator(
+            simple_pipeline, default_failures, n_simulations=n, seed=42
+        )
+        sim_vec = Simulator(
+            simple_pipeline, default_failures, n_simulations=n, seed=42
+        )
+        r_scalar = sim_scalar.run()
+        r_vec = sim_vec.run_vectorized()
+        # The implementations use different RNG streams so they won't match
+        # exactly, but both should be in the same ballpark.
+        assert abs(r_scalar.success_rate - r_vec.success_rate) < 0.10
+
+    def test_vectorized_costs_positive(self, simple_pipeline, default_failures):
+        sim = Simulator(
+            simple_pipeline, default_failures, n_simulations=100, seed=42
+        )
+        result = sim.run_vectorized()
+        for cost in result.costs:
+            assert cost > 0
+
+    def test_vectorized_falls_back_for_retry(
+        self, simple_pipeline, default_failures
+    ):
+        """Non-naive strategies should fall back to scalar run()."""
+        sim = Simulator(
+            simple_pipeline,
+            default_failures,
+            n_simulations=50,
+            seed=42,
+            strategy=retry(max_attempts=3),
+        )
+        result = sim.run_vectorized()
+        assert result.n_simulations == 50
+        # Should still work, just via the scalar path
+        assert 0.0 <= result.success_rate <= 1.0
+
+    def test_vectorized_context_overflow(self):
+        """Context overflow should be detected in vectorized mode."""
+        pipeline = Pipeline(
+            steps=[
+                Step(name="s1", model="sonnet", input_tokens=200000, output_tokens=0),
+            ]
+        )
+        failures = FailureConfig(
+            hallucination_rate=0.0,
+            refusal_rate=0.0,
+            tool_failure_rate=0.0,
+            latency_spike_rate=0.0,
+            context_overflow_at=100000,
+        )
+        sim = Simulator(pipeline, failures, n_simulations=50, seed=42)
+        result = sim.run_vectorized()
+        assert result.success_rate == 0.0
+        assert result.failure_counts.get("context_overflow", 0) == 50
+
+    def test_vectorized_latency_spikes_non_fatal(self):
+        """Latency spikes should not reduce success rate in vectorized mode."""
+        pipeline = Pipeline(steps=[Step(name="s1", model="sonnet")])
+        failures = FailureConfig(
+            hallucination_rate=0.0,
+            refusal_rate=0.0,
+            tool_failure_rate=0.0,
+            latency_spike_rate=1.0,
+            spike_multiplier=5.0,
+        )
+        sim = Simulator(pipeline, failures, n_simulations=50, seed=42)
+        result = sim.run_vectorized()
+        assert result.success_rate == 1.0
+        # Latency should be elevated
+        base = pipeline.total_baseline_latency()
+        assert result.mean_latency_s > base
