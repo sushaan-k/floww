@@ -16,7 +16,10 @@ from cascade.report import (
     build_report,
     export_comparison_json,
     export_json,
+    export_markdown,
+    format_comparison_markdown,
     format_report,
+    format_report_markdown,
     print_comparison_report,
 )
 from cascade.simulator import SimulationResult, Simulator
@@ -68,6 +71,15 @@ class TestFormatReport:
         if report.failure_counts:
             assert "Failure Breakdown" in text
 
+    def test_markdown_format(self, simple_pipeline, default_failures):
+        sim = Simulator(simple_pipeline, default_failures, n_simulations=30, seed=42)
+        report = build_report(sim.run())
+        text = format_report_markdown(report)
+
+        assert text.startswith("# Simulation Report:")
+        assert "| Metric | Value |" in text
+        assert "## Distribution Summary" in text
+
 
 class TestExportJson:
     """Tests for JSON export functions."""
@@ -109,6 +121,16 @@ class TestExportJson:
             export_json(report, path)
             assert path.exists()
 
+    def test_export_markdown(self, simple_pipeline, default_failures):
+        sim = Simulator(simple_pipeline, default_failures, n_simulations=25, seed=42)
+        report = build_report(sim.run())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "report.md"
+            export_markdown(report, path)
+            assert path.exists()
+            assert path.read_text().startswith("# Simulation Report:")
+
 
 class TestPrintComparisonReport:
     """Tests for the print_comparison_report function."""
@@ -119,6 +141,23 @@ class TestPrintComparisonReport:
         text = print_comparison_report(comparison)
         assert "Naive" in text
         assert "Retry(3)" in text
+
+    def test_format_comparison_markdown(self, simple_pipeline, default_failures):
+        comp = Comparator(simple_pipeline, default_failures, n_simulations=20, seed=42)
+        comparison = comp.compare([naive(), retry(max_attempts=2)])
+        markdown = format_comparison_markdown(comparison)
+        assert markdown.startswith("# Strategy Comparison:")
+        assert "Naive" in markdown
+        assert "Retry(2)" in markdown
+        assert markdown.count("\n# ") == 0
+        assert "\n## Simulation Report: Naive" in markdown
+
+    def test_markdown_helpers_exported_from_package_root(self):
+        import cascade
+
+        assert cascade.export_markdown is export_markdown
+        assert cascade.format_report_markdown is format_report_markdown
+        assert cascade.format_comparison_markdown is format_comparison_markdown
 
 
 class TestJsonDefault:

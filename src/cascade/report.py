@@ -151,6 +151,63 @@ def format_report(report: SimulationReport) -> str:
     return "\n".join(lines)
 
 
+def format_report_markdown(
+    report: SimulationReport,
+    *,
+    heading_level: int = 1,
+) -> str:
+    """Format a simulation report as Markdown.
+
+    Args:
+        report: Structured report to format.
+        heading_level: Markdown heading level used for the report title.
+
+    Returns:
+        GitHub-friendly Markdown string.
+    """
+    heading_level = min(max(heading_level, 1), 6)
+    title_prefix = "#" * heading_level
+    section_prefix = "#" * min(heading_level + 1, 6)
+    lines = [
+        f"{title_prefix} Simulation Report: {report.strategy_name}",
+        "",
+        "| Metric | Value |",
+        "| --- | --- |",
+        f"| Simulations | {report.n_simulations:,} |",
+        (
+            "| Success Rate | "
+            f"{report.success_rate:.1%} "
+            f"({report.success_ci.lower:.1%} - {report.success_ci.upper:.1%}) |"
+        ),
+        (
+            "| Mean Cost | "
+            f"${report.cost_ci.point:.4f} "
+            f"(${report.cost_ci.lower:.4f} - ${report.cost_ci.upper:.4f}) |"
+        ),
+        (
+            "| Mean Latency | "
+            f"{report.latency_ci.point:.2f}s "
+            f"({report.latency_ci.lower:.2f}s - {report.latency_ci.upper:.2f}s) |"
+        ),
+        f"| Mean Steps to Fail | {report.mean_steps_to_failure:.1f} |",
+        f"| Recovery Rate | {report.recovery_rate:.1%} |",
+        "",
+        f"{section_prefix} Distribution Summary",
+        "",
+        f"- Cost median / P5 / P95: `${report.cost_summary.median:.4f}` / `${report.cost_summary.p5:.4f}` / `${report.cost_summary.p95:.4f}`",
+        f"- Latency median / P5 / P95: `{report.latency_summary.median:.2f}s` / `{report.latency_summary.p5:.2f}s` / `{report.latency_summary.p95:.2f}s`",
+    ]
+
+    if report.failure_counts:
+        lines.extend(["", f"{section_prefix} Failure Breakdown", ""])
+        for failure_type, count in sorted(
+            report.failure_counts.items(), key=lambda item: (-item[1], item[0])
+        ):
+            lines.append(f"- `{failure_type}`: {count}")
+
+    return "\n".join(lines)
+
+
 def export_json(
     report: SimulationReport,
     path: str | Path,
@@ -167,6 +224,14 @@ def export_json(
     with open(path, "w") as f:
         json.dump(data, f, indent=2, default=_json_default)
     logger.info("Report exported to %s", path)
+
+
+def export_markdown(report: SimulationReport, path: str | Path) -> None:
+    """Export a simulation report to Markdown."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(format_report_markdown(report))
+    logger.info("Markdown report exported to %s", path)
 
 
 def export_comparison_json(
@@ -208,6 +273,20 @@ def print_comparison_report(comparison: StrategyComparison) -> str:
     full = "\n\n".join(sections)
     print(full)
     return full
+
+
+def format_comparison_markdown(comparison: StrategyComparison) -> str:
+    """Format a full strategy comparison as Markdown."""
+    sections = [
+        f"# Strategy Comparison: {comparison.pipeline_name}",
+        "",
+        f"Simulations per strategy: **{comparison.n_simulations:,}**",
+    ]
+    for result in comparison.results:
+        sections.extend(
+            ["", format_report_markdown(build_report(result), heading_level=2)]
+        )
+    return "\n".join(sections)
 
 
 def _json_default(obj: object) -> object:

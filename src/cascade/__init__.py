@@ -35,7 +35,10 @@ from cascade.report import (
     build_report,
     export_comparison_json,
     export_json,
+    export_markdown,
+    format_comparison_markdown,
     format_report,
+    format_report_markdown,
 )
 from cascade.simulator import (
     RunResult,
@@ -92,7 +95,10 @@ __all__ = [
     "build_report",
     "export_comparison_json",
     "export_json",
+    "export_markdown",
+    "format_comparison_markdown",
     "format_report",
+    "format_report_markdown",
     "mean_ci",
     "pareto_frontier",
     "proportion_ci",
