@@ -289,6 +289,17 @@ def format_comparison_markdown(comparison: StrategyComparison) -> str:
     return "\n".join(sections)
 
 
+def export_comparison_markdown(
+    comparison: StrategyComparison,
+    path: str | Path,
+) -> None:
+    """Export a strategy comparison report to Markdown."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(format_comparison_markdown(comparison))
+    logger.info("Markdown comparison report exported to %s", path)
+
+
 def _json_default(obj: object) -> object:
     """JSON serialization fallback for numpy types."""
     if isinstance(obj, np.integer):

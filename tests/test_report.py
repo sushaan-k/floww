@@ -15,6 +15,7 @@ from cascade.report import (
     _json_default,
     build_report,
     export_comparison_json,
+    export_comparison_markdown,
     export_json,
     export_markdown,
     format_comparison_markdown,
@@ -155,9 +156,20 @@ class TestPrintComparisonReport:
     def test_markdown_helpers_exported_from_package_root(self):
         import cascade
 
+        assert cascade.export_comparison_markdown is export_comparison_markdown
         assert cascade.export_markdown is export_markdown
         assert cascade.format_report_markdown is format_report_markdown
         assert cascade.format_comparison_markdown is format_comparison_markdown
+
+    def test_export_comparison_markdown(self, simple_pipeline, default_failures):
+        comp = Comparator(simple_pipeline, default_failures, n_simulations=20, seed=42)
+        comparison = comp.compare([naive(), retry(max_attempts=2)])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "comparison.md"
+            export_comparison_markdown(comparison, path)
+            assert path.exists()
+            assert path.read_text().startswith("# Strategy Comparison:")
 
 
 class TestJsonDefault:
