@@ -70,9 +70,7 @@ class CostModel:
     def __post_init__(self) -> None:
         if not self.models:
             for name, (inp, out) in _DEFAULT_PRICING.items():
-                self.models[name] = TokenPricing(
-                    input_per_1k=inp, output_per_1k=out
-                )
+                self.models[name] = TokenPricing(input_per_1k=inp, output_per_1k=out)
 
     def get_pricing(self, model: str) -> TokenPricing:
         """Look up pricing for a model, falling back to the default.
@@ -121,9 +119,7 @@ class CostModel:
         Returns:
             Total cost in USD.
         """
-        return sum(
-            self.step_cost(model, inp, out) for model, inp, out in steps
-        )
+        return sum(self.step_cost(model, inp, out) for model, inp, out in steps)
 
     def register(
         self,

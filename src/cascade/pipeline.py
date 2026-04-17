@@ -99,9 +99,7 @@ class Pipeline(BaseModel):
     def _validate_dag(self) -> Pipeline:
         """Ensure step names are unique and dependencies form a valid DAG."""
         if len(self.steps) == 0:
-            raise ValueError(
-                "Pipeline must contain at least one step"
-            )
+            raise ValueError("Pipeline must contain at least one step")
 
         names = {s.name for s in self.steps}
         if len(names) != len(self.steps):

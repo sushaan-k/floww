@@ -1016,9 +1016,7 @@ class TestMonteCarloStatisticalProperties:
 class TestSimulationResultToCSV:
     """Tests for SimulationResult.to_csv export."""
 
-    def test_csv_has_correct_header_and_row_count(
-        self, simple_pipeline, zero_failures
-    ):
+    def test_csv_has_correct_header_and_row_count(self, simple_pipeline, zero_failures):
         sim = Simulator(simple_pipeline, zero_failures, n_simulations=50, seed=42)
         result = sim.run()
 
@@ -1067,9 +1065,7 @@ class TestSimulationResultToCSV:
 class TestRunVectorized:
     """Tests for the vectorized Monte Carlo implementation."""
 
-    def test_vectorized_zero_failures_all_succeed(
-        self, simple_pipeline, zero_failures
-    ):
+    def test_vectorized_zero_failures_all_succeed(self, simple_pipeline, zero_failures):
         sim = Simulator(simple_pipeline, zero_failures, n_simulations=200, seed=42)
         result = sim.run_vectorized()
         assert result.success_rate == 1.0
@@ -1085,9 +1081,7 @@ class TestRunVectorized:
         sim_scalar = Simulator(
             simple_pipeline, default_failures, n_simulations=n, seed=42
         )
-        sim_vec = Simulator(
-            simple_pipeline, default_failures, n_simulations=n, seed=42
-        )
+        sim_vec = Simulator(simple_pipeline, default_failures, n_simulations=n, seed=42)
         r_scalar = sim_scalar.run()
         r_vec = sim_vec.run_vectorized()
         # The implementations use different RNG streams so they won't match
@@ -1095,16 +1089,12 @@ class TestRunVectorized:
         assert abs(r_scalar.success_rate - r_vec.success_rate) < 0.10
 
     def test_vectorized_costs_positive(self, simple_pipeline, default_failures):
-        sim = Simulator(
-            simple_pipeline, default_failures, n_simulations=100, seed=42
-        )
+        sim = Simulator(simple_pipeline, default_failures, n_simulations=100, seed=42)
         result = sim.run_vectorized()
         for cost in result.costs:
             assert cost > 0
 
-    def test_vectorized_falls_back_for_retry(
-        self, simple_pipeline, default_failures
-    ):
+    def test_vectorized_falls_back_for_retry(self, simple_pipeline, default_failures):
         """Non-naive strategies should fall back to scalar run()."""
         sim = Simulator(
             simple_pipeline,

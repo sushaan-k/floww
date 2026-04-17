@@ -98,9 +98,7 @@ class StrategyComparison(BaseModel):
         for r in self.results:
             ci = proportion_ci(r.success_count, r.n_simulations)
             total_failures = r.n_simulations - r.success_count
-            ci_str = (
-                f"{r.success_rate:.1%} [{ci.lower:.1%}-{ci.upper:.1%}]"
-            )
+            ci_str = f"{r.success_rate:.1%} [{ci.lower:.1%}-{ci.upper:.1%}]"
             lines.append(
                 f"{r.strategy_name:<25} {ci_str:>25} "
                 f"{'$' + f'{r.mean_cost_usd:.4f}':>10} "
