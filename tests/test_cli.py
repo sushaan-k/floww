@@ -18,7 +18,10 @@ from cascade.cli import (
     _configure_logging,
     _load_pipeline_from_json,
     main,
+    parse_strategy_spec,
+    parse_strategy_specs,
 )
+from cascade.strategies import StrategyType
 
 
 def _write_pipeline_json(directory: Path, name: str = "test-pipeline") -> Path:
@@ -90,7 +93,15 @@ class TestStrategyRegistry:
     """Tests for the STRATEGY_REGISTRY constant."""
 
     def test_all_expected_strategies_present(self):
-        expected = {"naive", "retry", "fallback", "parallel", "checkpoint", "adaptive"}
+        expected = {
+            "naive",
+            "retry",
+            "fallback",
+            "parallel",
+            "checkpoint",
+            "human",
+            "adaptive",
+        }
         assert set(STRATEGY_REGISTRY.keys()) == expected
 
     def test_registry_values_are_strategies(self):
@@ -98,6 +109,56 @@ class TestStrategyRegistry:
 
         for name, strat in STRATEGY_REGISTRY.items():
             assert isinstance(strat, ResilienceStrategy), f"{name} is not a strategy"
+
+
+class TestStrategySpecParsing:
+    """Tests for user-facing strategy spec parsing."""
+
+    def test_retry_attempts(self):
+        strategy = parse_strategy_spec("retry:5")
+        assert strategy.strategy_type == StrategyType.RETRY
+        assert strategy.max_attempts == 5
+        assert strategy.display_name == "Retry(5)"
+
+    def test_parallel_vote(self):
+        strategy = parse_strategy_spec("parallel:5:any")
+        assert strategy.strategy_type == StrategyType.PARALLEL
+        assert strategy.parallel_n == 5
+        assert strategy.vote_method == "any"
+
+    def test_fallback_models(self):
+        strategy = parse_strategy_spec("fallback:opus+sonnet+haiku")
+        assert strategy.strategy_type == StrategyType.FALLBACK
+        assert strategy.fallback_models == ["opus", "sonnet", "haiku"]
+        assert strategy.max_attempts == 3
+
+    def test_human_steps_and_accuracy(self):
+        strategy = parse_strategy_spec("human:0+2:0.9")
+        assert strategy.strategy_type == StrategyType.HUMAN_IN_LOOP
+        assert strategy.human_at_steps == [0, 2]
+        assert strategy.human_accuracy == 0.9
+
+    def test_adaptive_escalation(self):
+        strategy = parse_strategy_spec("adaptive:1:fallback")
+        assert strategy.strategy_type == StrategyType.ADAPTIVE
+        assert strategy.escalation_threshold == 1
+        assert strategy.escalation_strategy == StrategyType.FALLBACK
+
+    def test_compare_specs_can_mix_custom_strategies(self):
+        strategies = parse_strategy_specs(
+            "naive,retry:4,parallel:5:any,checkpoint:3,human:1+2:0.8"
+        )
+        assert [s.strategy_type for s in strategies] == [
+            StrategyType.NAIVE,
+            StrategyType.RETRY,
+            StrategyType.PARALLEL,
+            StrategyType.CHECKPOINT,
+            StrategyType.HUMAN_IN_LOOP,
+        ]
+
+    def test_unknown_strategy_raises_click_error(self):
+        with pytest.raises(Exception, match="unknown strategy"):
+            parse_strategy_spec("bogus")
 
 
 class TestCLISimulateCommand:
@@ -132,6 +193,26 @@ class TestCLISimulateCommand:
             )
             assert result.exit_code == 0
             assert "Simulation Report" in result.output
+
+    def test_simulate_with_custom_strategy_spec(self):
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_pipeline_json(Path(tmpdir))
+            result = runner.invoke(
+                main,
+                [
+                    "simulate",
+                    str(path),
+                    "-n",
+                    "30",
+                    "-s",
+                    "parallel:5:any",
+                    "--seed",
+                    "1",
+                ],
+            )
+            assert result.exit_code == 0
+            assert "Parallel(5)" in result.output
 
     def test_simulate_with_output_json(self):
         runner = CliRunner()
@@ -236,6 +317,26 @@ class TestCLICompareCommand:
                 ],
             )
             assert result.exit_code == 0
+            assert "Recommendation" in result.output
+
+    def test_compare_with_custom_strategy_specs(self):
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_pipeline_json(Path(tmpdir))
+            result = runner.invoke(
+                main,
+                [
+                    "compare",
+                    str(path),
+                    "-n",
+                    "15",
+                    "--strategies",
+                    "naive,retry:4,parallel:5:any,checkpoint:3,human:1+2:0.8",
+                    "--seed",
+                    "42",
+                ],
+            )
+            assert result.exit_code == 0, result.output
             assert "Recommendation" in result.output
 
     def test_compare_with_output(self):

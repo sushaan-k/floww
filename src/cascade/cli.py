@@ -10,6 +10,7 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import Literal, cast
 
 import click
 
@@ -23,9 +24,11 @@ from cascade.report import (
 )
 from cascade.strategies import (
     ResilienceStrategy,
+    StrategyType,
     adaptive,
     checkpoint,
     fallback,
+    human_in_loop,
     naive,
     parallel,
     retry,
@@ -39,8 +42,162 @@ STRATEGY_REGISTRY: dict[str, ResilienceStrategy] = {
     "fallback": fallback(),
     "parallel": parallel(n=3),
     "checkpoint": checkpoint(interval=2),
+    "human": human_in_loop(),
     "adaptive": adaptive(),
 }
+
+STRATEGY_SPEC_HELP = (
+    "Strategy spec. Built-ins: naive, retry[:attempts], fallback[:model+...], "
+    "parallel[:n[:majority|unanimous|any]], checkpoint[:interval], "
+    "human[:step+...[:accuracy]], adaptive[:threshold[:strategy]]."
+)
+
+
+def _parse_positive_int(value: str, label: str) -> int:
+    """Parse a positive integer for a strategy option."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise click.BadParameter(f"{label} must be an integer") from exc
+
+    if parsed < 1:
+        raise click.BadParameter(f"{label} must be at least 1")
+    return parsed
+
+
+def _parse_non_negative_int(value: str, label: str) -> int:
+    """Parse a non-negative integer for zero-based step indexes."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise click.BadParameter(f"{label} must be an integer") from exc
+
+    if parsed < 0:
+        raise click.BadParameter(f"{label} must be at least 0")
+    return parsed
+
+
+def _parse_probability(value: str, label: str) -> float:
+    """Parse a probability in the inclusive range [0, 1]."""
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise click.BadParameter(f"{label} must be a number") from exc
+
+    if not 0.0 <= parsed <= 1.0:
+        raise click.BadParameter(f"{label} must be between 0 and 1")
+    return parsed
+
+
+def _split_list(value: str) -> list[str]:
+    """Split a user-facing list parameter.
+
+    ``+`` is the documented separator because compare specs are comma-separated,
+    but accepting commas keeps single-strategy specs forgiving.
+    """
+    separator = "+" if "+" in value else ","
+    return [item.strip() for item in value.split(separator) if item.strip()]
+
+
+def _parse_step_list(value: str) -> list[int]:
+    """Parse one or more human-review step indices."""
+    steps = [_parse_non_negative_int(item, "human step") for item in _split_list(value)]
+    if not steps:
+        raise click.BadParameter("human strategy requires at least one step")
+    return steps
+
+
+def parse_strategy_spec(spec: str) -> ResilienceStrategy:
+    """Parse a CLI strategy spec into a ResilienceStrategy.
+
+    Supported forms include ``retry:5``, ``parallel:5:any``,
+    ``fallback:opus+sonnet``, ``human:2+5:0.99``, and
+    ``adaptive:2:fallback``. Bare strategy names use the built-in defaults.
+    """
+    raw = spec.strip()
+    if not raw:
+        raise click.BadParameter("strategy spec cannot be empty")
+
+    name, *parts = [part.strip().lower() for part in raw.split(":")]
+    if name == "human_in_loop":
+        name = "human"
+
+    if name == "naive":
+        if parts:
+            raise click.BadParameter("naive does not accept parameters")
+        return naive()
+
+    if name == "retry":
+        if len(parts) > 1:
+            raise click.BadParameter("retry accepts at most one parameter: attempts")
+        if not parts:
+            return retry()
+        return retry(max_attempts=_parse_positive_int(parts[0], "retry attempts"))
+
+    if name == "fallback":
+        if len(parts) > 1:
+            raise click.BadParameter("fallback accepts one parameter: model+model")
+        return fallback(models=_split_list(parts[0])) if parts else fallback()
+
+    if name == "parallel":
+        if len(parts) > 2:
+            raise click.BadParameter("parallel accepts parameters: n[:vote]")
+        vote_methods = {"majority", "unanimous", "any"}
+        n = _parse_positive_int(parts[0], "parallel n") if parts else 3
+        vote: Literal["majority", "unanimous", "any"] = "majority"
+        if len(parts) == 2:
+            if parts[1] not in vote_methods:
+                raise click.BadParameter(
+                    "parallel vote must be one of: majority, unanimous, any"
+                )
+            vote = cast(Literal["majority", "unanimous", "any"], parts[1])
+        return parallel(n=n, vote=vote)
+
+    if name == "checkpoint":
+        if len(parts) > 1:
+            raise click.BadParameter("checkpoint accepts one parameter: interval")
+        if not parts:
+            return checkpoint()
+        return checkpoint(interval=_parse_positive_int(parts[0], "checkpoint interval"))
+
+    if name == "human":
+        if len(parts) > 2:
+            raise click.BadParameter("human accepts parameters: step+step[:accuracy]")
+        steps = _parse_step_list(parts[0]) if parts else None
+        accuracy = (
+            _parse_probability(parts[1], "human accuracy") if len(parts) == 2 else 0.95
+        )
+        return human_in_loop(at_steps=steps, accuracy=accuracy)
+
+    if name == "adaptive":
+        if len(parts) > 2:
+            raise click.BadParameter(
+                "adaptive accepts parameters: threshold[:strategy]"
+            )
+        threshold = _parse_positive_int(parts[0], "adaptive threshold") if parts else 2
+        escalation = parts[1] if len(parts) == 2 else "parallel"
+        try:
+            return adaptive(
+                escalation_threshold=threshold,
+                escalation_strategy=escalation,
+            )
+        except ValueError as exc:
+            available = ", ".join(strategy_type.value for strategy_type in StrategyType)
+            raise click.BadParameter(
+                f"adaptive escalation strategy is unknown: {escalation!r}. "
+                f"Available: {available}"
+            ) from exc
+
+    available = ", ".join(STRATEGY_REGISTRY.keys())
+    raise click.BadParameter(f"unknown strategy {name!r}. Available: {available}")
+
+
+def parse_strategy_specs(specs: str) -> list[ResilienceStrategy]:
+    """Parse a comma-separated list of CLI strategy specs."""
+    raw_specs = [item.strip() for item in specs.split(",") if item.strip()]
+    if not raw_specs:
+        raise click.BadParameter("at least one strategy is required")
+    return [parse_strategy_spec(item) for item in raw_specs]
 
 
 def _configure_logging(verbose: bool) -> None:
@@ -113,9 +270,8 @@ def main(ctx: click.Context, verbose: bool) -> None:
     "--strategy",
     "strategy_name",
     default="naive",
-    type=click.Choice(list(STRATEGY_REGISTRY.keys()), case_sensitive=False),
     show_default=True,
-    help="Resilience strategy to apply.",
+    help=STRATEGY_SPEC_HELP,
 )
 @click.option(
     "--hallucination-rate",
@@ -159,7 +315,7 @@ def simulate(
         hallucination_rate=hallucination_rate,
         tool_failure_rate=tool_failure_rate,
     )
-    strategy = STRATEGY_REGISTRY[strategy_name.lower()]
+    strategy = parse_strategy_spec(strategy_name)
 
     from cascade.simulator import Simulator
 
@@ -197,7 +353,7 @@ def simulate(
     default="naive,retry,parallel,checkpoint,adaptive",
     type=str,
     show_default=True,
-    help="Comma-separated list of strategies to compare.",
+    help=f"Comma-separated strategy specs. {STRATEGY_SPEC_HELP}",
 )
 @click.option(
     "--hallucination-rate",
@@ -254,17 +410,7 @@ def compare(
         tool_failure_rate=tool_failure_rate,
     )
 
-    names = [n.strip().lower() for n in strategy_names.split(",")]
-    strategies = []
-    for name in names:
-        if name not in STRATEGY_REGISTRY:
-            click.echo(
-                f"Unknown strategy: {name!r}. "
-                f"Available: {', '.join(STRATEGY_REGISTRY.keys())}",
-                err=True,
-            )
-            raise SystemExit(1)
-        strategies.append(STRATEGY_REGISTRY[name])
+    strategies = parse_strategy_specs(strategy_names)
 
     comp = Comparator(
         pipeline=pipeline,
