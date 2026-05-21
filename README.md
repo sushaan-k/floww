@@ -201,13 +201,26 @@ strategies.adaptive(                  # Escalate after repeated failures
 ```bash
 # Run a single simulation
 floww simulate pipeline.json --strategy retry --simulations 10000
+floww simulate pipeline.json --strategy retry:5 --simulations 10000
 
 # Compare strategies
 floww compare pipeline.json --strategies naive,retry,parallel,checkpoint,adaptive
+floww compare pipeline.json --strategies naive,retry:4,parallel:5:any,checkpoint:3
 
 # Export results
 floww compare pipeline.json -o results.json --pareto pareto.png --heatmap heatmap.png
 ```
+
+CLI strategy specs support tunable resilience parameters:
+
+| Spec | Meaning |
+| --- | --- |
+| `retry:5` | Retry each step up to five attempts |
+| `fallback:opus+sonnet+haiku` | Try fallback models in order |
+| `parallel:5:any` | Run five agents and pass if any succeeds |
+| `checkpoint:3` | Checkpoint every three steps |
+| `human:0+2:0.9` | Human review at zero-based steps 0 and 2 with 90% accuracy |
+| `adaptive:1:fallback` | Escalate to fallback after one repeated failure |
 
 ## Examples
 
